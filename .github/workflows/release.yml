@@ -108,3 +108,9 @@ jobs:
           $(git log ${{ steps.version.outputs.latest_tag }}..HEAD --pretty=format:"- %s" --no-merges)
         draft: false
         prerelease: false
+
+    - name: Trigger Workflow B
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh workflow run "Build and Deploy to Cloud Run (PROD)" --ref main -f version=${{ steps.version.outputs.new_version }}

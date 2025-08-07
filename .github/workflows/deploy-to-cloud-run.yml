@@ -5,12 +5,8 @@ name: Build and Deploy to Cloud Run (PROD)
 
 # Controls when the workflow will run.
 on:
-  # 1. Trigger on push events to the "master" branch.
-  push:
-    branches:
-      - master
 
-  # 2. Allows you to run this workflow manually from the Actions tab.
+  # Allows you to run this workflow manually from the Actions tab or to be called from another workflow.
   workflow_dispatch:
     # Defines input parameters for manual runs.
     inputs:
