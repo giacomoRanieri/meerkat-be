@@ -7,20 +7,23 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    
+    outputs:
+      new_tag: ${{steps.generate-tag.outputs.new_tag}}
     steps:
-    - name: Checkout code
+    - id: checkout
+      name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Fetch all history for proper tag detection
     
-    - name: Set up Python
+    - id: setup
+      name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
     
-    - name: Get latest tag and determine version bump
-      id: version
+    - id: generate-tag
+      name: Get latest tag and determine version bump
       run: |
         # Get the latest tag in the current branch history
         LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -73,7 +76,8 @@ jobs:
         echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
         echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
     
-    - name: Create and push tag
+    - id: push-tag
+      name: Create and push tag
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -104,3 +108,9 @@ jobs:
           $(git log ${{ steps.version.outputs.latest_tag }}..HEAD --pretty=format:"- %s" --no-merges)
         draft: false
         prerelease: false
+
+    - name: Trigger Workflow B
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh workflow run "Build and Deploy to Cloud Run (PROD)" --ref main -f version=${{ steps.version.outputs.new_version }}
