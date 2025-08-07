@@ -74,7 +74,7 @@ jobs:
         id: checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.get_version.outputs.deploy_version }}
+          ref: "v${{ steps.get_version.outputs.deploy_version }}"
           fetch-depth: 0
 
       # Step 2: Authenticate to Google Cloud.
