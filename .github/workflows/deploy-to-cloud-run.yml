@@ -36,7 +36,8 @@ jobs:
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
 
 
-    # The type of runner that the job will run on.
+    # Specifies the environment on which this job will run.
+    # `ubuntu-latest` is a recent version of the Ubuntu operating system.
     runs-on: ubuntu-latest
 
     # Granting permissions for the Google Auth action to work correctly.
@@ -47,37 +48,36 @@ jobs:
     steps:
 
       # Step 1: Determine the version string.
-      # This step uses a different logic based on how the workflow was triggered.
+      # This step uses the version provided in the manual input.
+      # It checks if the tag exists in the remote repository.
       - name: Determine Version
         id: get_version
         run: |
-          # If triggered by a push event...
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            # ...get the most recent tag from the repository.
-            # This command finds the commit with the latest tag and describes it.
-            VERSION=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
-            echo "Triggered by push. Using latest tag: $VERSION"
-          # If triggered manually...
+          # Use the version provided in the manual input.
+          VERSION="${{ github.event.inputs.version }}"
+          echo "Using provided version: $VERSION"
+
+          if git ls-remote --tags ${{github.repositoryUrl}} | grep "refs/tags/$VERSION"; then
+            # Set the determined version as an environment variable for subsequent steps.
+            echo "deploy_version=${VERSION#v}" >> $GITHUB_OUTPUT
           else
-            # ...use the version provided in the manual input.
-            VERSION="${{ github.event.inputs.version }}"
-            echo "Triggered manually. Using provided version: $VERSION"
+            echo "Tag '$VERSION' not found on repository."
+            exit 1
           fi
-          # Set the determined version as an environment variable for subsequent steps.
-          echo "deploy_version=${VERSION#v}" >> $GITHUB_OUTPUT
+
 
 
       # Step 2: Check out the repository's code.
-      # `ref: ` is required to fetch the latest tag.
-      # `fetch-depth: 0` is required to fetch all history and tags.
       - name: Checkout repository
         id: checkout
         uses: actions/checkout@v4
         with:
+          # `ref: ` is required to fetch the latest tag.
           ref: "v${{ steps.get_version.outputs.deploy_version }}"
+          # `fetch-depth: 0` is required to fetch all history and tags.
           fetch-depth: 0
 
-      # Step 2: Authenticate to Google Cloud.
+      # Step 3: Authenticate to Google Cloud.
       # This action uses Workload Identity Federation to securely authenticate.
       - name: Authenticate to Google Cloud
         id: auth
@@ -85,44 +85,42 @@ jobs:
         with:
           # The JSON key of the Google Cloud service account.
           credentials_json: ${{ env.GCP_SA_KEY }}
+          # The project_id on Google Cloud.
           project_id: ${{ env.PROJECT_ID }}
-
-
-      # Step 3: Set up Cloud SDK.
-      # - name: 'Set up Cloud SDK'
-      #   uses: 'google-github-actions/setup-gcloud@v2'
-      #   with:
-      #     project_id: ${{ env.PROJECT_ID }}
 
       # Step 4: Set up Docker to use Google Cloud credentials
       - name: Configure Docker to use gcloud
         run: |
-          gcloud info
           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev 
 
       
-      # Step 7: Build and tag the Docker image
+      # Step 5: Build and tag the Docker image
       - name: Build and Push Docker Image
         id: build
         run: |
+          # Build the Docker image using the Dockerfile in the current directory.
+          # The image is tagged with the region, project ID, service name, and version.
           IMAGE_TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/meerkat/${{ env.SERVICE_NAME }}:${{ steps.get_version.outputs.deploy_version }}"
+          # The `--progress quiet` option reduces output noise during the build.
           docker build . --tag "${IMAGE_TAG}" --progress quiet
-          docker push "${IMAGE_TAG}"
+          # Push the Docker image to Google Container Registry.
+          docker push "${IMAGE_TAG}" --quiet
+          # Set the image tag as an output variable for later steps.
           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
       
-      # Step 8: Build and Deploy to Cloud Run.
+      # Step 6: Build and Deploy to Cloud Run.
       # This action handles deploying to Cloud Run service.
       - name: Deploy to Cloud Run
         id: deploy
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
+          # The service name to deploy.
           service: ${{ env.SERVICE_NAME }}
+          # The Google Cloud project ID where the service is deployed.
           project_id: ${{ env.PROJECT_ID }}
+          # The region where the service is deployed.
           region: ${{ env.REGION }}
-          # The source code to build. Defaults to './' (the root of the repo).
-          #source: ./
-          # The image that will be built and pushed to Google Container Registry.
-          # The version is dynamically set from the previous step.
+          # The Docker image to deploy.
           image: ${{steps.build.outputs.image_tag}}
         # Deployment traffic settings.
         # This configuration sends 100% of traffic to the newly deployed revision.
@@ -132,7 +130,7 @@ jobs:
         #   to:
         #     - LATEST
 
-      # Step 9: Output the URL of the deployed service.
+      # Step 7: Output the URL of the deployed service.
       - name: Show Deployed URL
         run: echo "Successfully deployed to ${{ steps.deploy.outputs.url }}"
 
